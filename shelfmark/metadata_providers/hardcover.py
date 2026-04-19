@@ -556,12 +556,24 @@ def _normalize_hardcover_api_key(value: object) -> str:
     normalized_value = normalize_optional_text(value) or ""
 
     # Support Docker secrets via /run/secrets/
-    if normalized_value.startswith("/run/secrets/") and os.path.isfile(normalized_value):
+    if normalized_value.startswith("/run/secrets/"):
+        # Resolve real paths to prevent traversal out of the secrets directory
         try:
-            with open(normalized_value) as f:
+            secrets_root = os.path.realpath("/run/secrets/")
+            real_path = os.path.realpath(normalized_value)
+            if not os.path.commonpath([secrets_root, real_path]) == secrets_root:
+                logger.warning("Hardcover API key path traversal attempt blocked: %s", normalized_value)
+                return ""
+
+            if not os.path.isfile(real_path):
+                logger.warning("Hardcover API key secret file not found: %s", normalized_value)
+                return ""
+
+            with open(real_path, encoding="utf-8") as f:
                 normalized_value = f.read().strip()
         except OSError:
             logger.warning("Failed to read Hardcover API key from secret file: %s", normalized_value)
+            return ""
 
     return normalized_value.removeprefix("Bearer ").strip()
 
